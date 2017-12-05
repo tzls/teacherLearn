@@ -6,9 +6,16 @@ from utils.music.musicTest import *
 from utils.spider.project_spider import *
 from configparser import ConfigParser
 from datetime import datetime
+import logging.config
 
 class Utils(object):
     def __init__(self):
+        #通过logging.basicConfig函数对日志的输出格式及方式做相关配置
+        # logging.basicConfig(level=logging.DEBUG,#日志级别
+        #                     format='%(asctime)s %(filename)s [line:%(lineno)d] %(levelname)s %(message)s',#每行的日志格式 %(levelno)s: 打印日志级别的数值 %(levelname)s: 打印日志级别名称
+        #                     datefmt = '%a, %d %b %Y %H:%M:%S',filename = 'myapp.log',filemode='w')#时间格式 文件名 日志文件的打开模式
+        logging.config.fileConfig('logging.conf')
+        self.logger = logging.getLogger('learnutil')
         self.music = Music()
         self.driver = self.initDriver()
         self.first = True
@@ -16,11 +23,16 @@ class Utils(object):
     def initDriver(self):
         driver = webdriver.Chrome()
         cf = ConfigParser()
+        self.logger.info("开始读取配置文件")
         cf.read("account.ini")
         driver.get("http://zjpx.hnhhlearning.com/")
         close_float_ad = driver.find_element_by_id("close_float_ad")
+        if close_float_ad:
+            self.logger.info("关闭温馨提示")
         close_float_ad.click()
         close_button = driver.find_elements_by_xpath("//input[@value='关闭']")[0]
+        if close_button:
+            self.logger.info("关闭滚动的提示")
         close_button.click()
         account = driver.find_element_by_xpath("//input[@id='LoginAccount']")
         account.send_keys(cf.get("account", "username"))
@@ -29,19 +41,22 @@ class Utils(object):
         time.sleep(5)
         btn_submit = driver.find_element_by_xpath("//input[@id='btnSubmit1']")
         btn_submit.click()
+        self.logger.info("点击登录")
         time.sleep(2)
         return driver
 
     def test(self):
         video_hrefs = ProjectSpider().spider(self.driver)
-        print("video的数量...",len(video_hrefs))
+        self.logger.info("video的数量..%s",len(video_hrefs))
         for video_href in video_hrefs:
             path = "http://zjxy.hnhhlearning.com/Study/Learning/MediaLi?sscId=%s"%(video_href)
-            print("path..",path)
+            self.logger.info("即将打开学习的视频地址 %s",path)
             self.watchVideo(path)
-        print("恭喜！所有课程都学完了！！！")
-    #暂时的设计思路是每5分钟查询一次当前进度，如果当前进度为100%，则return
+        self.logger.info("恭喜！所有课程都学完了！！!")
+        self.driver.close()
+
     def watchVideo(self,path):
+        #p2ps_video
         self.driver.get(path)
         time.sleep(8)
         while(True):
@@ -49,26 +64,26 @@ class Utils(object):
                 page_source = self.driver.page_source
                 soup = BeautifulSoup(page_source,'lxml')
                 progressbar = soup.find("h5",attrs={"id":"div_ProgressBar_value"}).get_text()
-                #progressbar = driver.find_element_by_id("div_ProgressBar_value").text
                 proprogressNum,sleepTime = self.getSleepTime(progressbar)
                 #如果还未点击一次弹出框，则休眠5s
-                if self.first:
+                if self.first and proprogressNum != 0:
                     sleepTime = 5
                 #得到下次获取进度条的间隔时间
-                print("progressbar..",progressbar,"..time..",sleepTime)
+                self.logger.info("进度条...%s",progressbar,)
+                self.logger.info("休眠时间..%s",sleepTime)
                 #说明本节已经学完了
                 if proprogressNum == 100:
-                    print('本节已经学完')
+                    self.logger.info("本节已经学完")
                     return
                 if self.wheClick(soup):
                     self.clickAnswer()
                     self.first = False
                 #休息sleepTime后继续try
-                print('睡前时间',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                self.logger.info('睡前时间..%s',datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 time.sleep(sleepTime)
-                print("睡后时间",datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                self.logger.info('睡后时间..%s', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             except Exception as err:
-                print("Exception",err)
+                self.logger.exception("Exception..%s",err)
                 time.sleep(2)
 
     def process_end(self):
@@ -85,7 +100,6 @@ class Utils(object):
         result2 = int(strs[2][2:len(strs[2])])
         result3 = int(strs[3][2:len(strs[3])])
         result = int(strs[0][index1 + 1:index2]) + int(strs[0][index2 + 1:index3])
-        #print("result1..",result1,"result2..",result2,"result3..",result3,"result..",result)
         if (result == result1):
            return 1
         elif (result == result2):
@@ -114,11 +128,12 @@ class Utils(object):
     #根据当前进度判断间隔时间，间隔多久再次获取进度
     def getSleepTime(self,progressbar):
         progressNum = int(progressbar[0:len(progressbar)-1])
-        print("progressNum.",progressNum)
         if progressNum == 100:
             sleepTime = 0
-        elif progressNum < 80:
+        elif progressNum < 70:
             sleepTime = 598
+        elif progressNum < 80:
+            sleepTime =150
         elif progressNum>90:
             sleepTime = 30
         else:
@@ -129,7 +144,8 @@ class Utils(object):
         #ui_border ui_state_visible ui_state_focus ui_state_lock
         clock_window1 = soup.find("table",attrs={'class':'ui_border ui_state_visible ui_state_focus ui_state_lock'})
         clock_window2 = soup.find("table",attrs={'class':'ui_border ui_state_visible ui_state_lock ui_state_focus'})
-        print("clock_window1..",clock_window1 is None,"clock_window2..",clock_window2 is None)
+        self.logger.info("clock_window1..%s",clock_window1 is not None)
+        self.logger.info("clock_window2..%s", clock_window2 is not None)
         if clock_window1 or clock_window2:
             return True
         else:
@@ -139,16 +155,22 @@ class Utils(object):
         #ui_border ui_state_visible ui_state_lock ui_state_focus
         #driver.find_element_by_xpath("//table[@class = 'ui_border ui_state_visible ui_state_focus ui_state_lock']")
         ui_content1 = self.driver.find_elements_by_xpath("//div[@class='ui_content']")
-        print("答案1..", self.driver.find_element_by_xpath("//span[@id='divradio_A']").text)
-        print("答案2..", self.driver.find_element_by_xpath("//span[@id='divradio_B']").text)
-        print("答案3..", self.driver.find_element_by_xpath("//span[@id='divradio_C']").text)
-        result1 = self.driver.find_element_by_xpath("//span[@id='divradio_A']")
-        result2 = self.driver.find_element_by_xpath("//span[@id='divradio_B']")
-        result3 = self.driver.find_element_by_xpath("//span[@id='divradio_C']")
+        self.logger.info("答案1..%s", self.driver.find_element_by_xpath("//span[@id='divradio_A']").text)
+        self.logger.info("答案2..%s", self.driver.find_element_by_xpath("//span[@id='divradio_B']").text)
+        self.logger.info("答案3..%s", self.driver.find_element_by_xpath("//span[@id='divradio_C']").text)
+        result1 = self.driver.find_element_by_xpath("//input[@id='radio_A']")
+        if not result1:
+            self.logger.error("答案A未获取成功")
+        result2 = self.driver.find_element_by_xpath("//input[@id='radio_B']")
+        if not result2:
+            self.logger.error("答案B未获取成功")
+        result3 = self.driver.find_element_by_xpath("//input[@id='radio_C']")
+        if not result3:
+            self.logger.error("答案未获取成功")
         but_Question = self.driver.find_element_by_xpath("//input[@id='but_Question']")
         # 得到正确答案的序号
         index = self.getAnswer(ui_content1[0].text)
-        print("clickk..答案", index)
+        self.logger.info("click.答案..%s", index)
         if index == 1:
             result1.click()
         elif index == 2:
